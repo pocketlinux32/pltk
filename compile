@@ -1,0 +1,120 @@
+#!/bin/sh
+set -e
+start_time=""
+end_time=""
+
+if [ "$CC" = "" ]; then
+	CC="cc"
+fi
+
+if [ "$AR" = "" ]; then
+	AR="ar"
+fi
+
+if [ "$CFLAGS" = "" ]; then
+	CFLAGS="-s -O2"
+fi
+
+_runtime_calc(){
+	set +e
+	case $1 in
+		start)
+			start_time="$(date +%s)"
+			printf "Operation started at $(date --date=@$start_time)\n\n"
+			;;
+		stop)
+			end_time="$(date +%s)"
+			local runtime="$(expr $end_time - $start_time)"
+			local hours="$(expr $runtime / 3600)"
+			local minutes=0
+			printf "Operation took "
+
+			if [ $hours -ne 0 ]; then
+				printf "$hours hours"
+				runtime="$(expr $runtime - $(expr $hours '*' 3600))"
+				if [ $runtime -gt 60 ]; then
+					printf ", "
+				else
+					printf " and "
+				fi
+			fi
+			minutes="$(expr $runtime / 60)"
+
+			if [ $minutes -ne 0 ]; then
+				printf "$minutes minutes and "
+				runtime="$(expr $runtime - $(expr $minutes '*' 60))"
+			fi
+
+			echo "$runtime seconds to complete"
+			;;
+	esac
+	set -e
+}
+
+compile_lib(){
+	for i in $(ls src); do
+		printf "Compiling $i (static)..."
+		$CC -c -Iinclude src/$i $CFLAGS -w
+		echo "Done."
+	done
+	printf "Creating static library $1..."
+	$AR rc $1.a *.o 2>&1 >/dev/null
+	echo "Done."
+	for i in $(ls src); do
+		printf "Compiling $i (shared)..."
+		$CC -c -fPIC -Iinclude src/$i $CFLAGS -w
+		echo "Done"
+	done
+	printf "Creating shared library $1..."
+	$CC -shared *.o -o $1.so -w
+	echo "Done."
+	rm *.o -f
+}
+
+compile_test(){
+	printf "Compiling test program $1..."
+	$CC --static -Iinclude -L. $LDFLAGS  $1.c -o $1.out $2 $CFLAGS 2>&1 >/dev/null
+	echo "Done."
+}
+
+install_lib(){
+	printf "Installing library $1..."
+	cp include/* "$2/include"
+	mv $1.* "$2/lib"
+	echo "Done."
+}
+
+printf "PocketLinux32's Generic C Library Build System v0.01\n\n"
+case $1 in
+	--clean)
+		rm *.out *.a *.so core -f
+		echo "Project directory has been cleaned"
+		exit 0
+		;;
+
+	--build)
+		action=$2
+		;;
+	--install)
+		_runtime_calc start
+		install_lib libpl32 $2
+		_runtime_calc stop
+		exit 0
+		;;
+	--help)
+		echo "--clean			Removes any files generated during compilation"
+		echo "--build [action]	Compiles the library or the library testcase"
+		echo "--install [dest]	Installs the compiled library to dest"
+		exit 0
+		;;
+esac
+
+if [ "$action" = "lib" ]; then
+	opts="libpltk"
+elif [ "$action" = "test" ]; then
+	opts="pl32-test -lpl32 -lpltk"
+fi
+
+_runtime_calc start
+compile_$action $opts
+_runtime_calc stop
