@@ -2,6 +2,8 @@
 set -e
 start_time=""
 end_time=""
+static=1
+shared=1
 
 if [ "$CC" = "" ]; then
 	CC="cc"
@@ -11,9 +13,22 @@ if [ "$AR" = "" ]; then
 	AR="ar"
 fi
 
-if [ "$CFLAGS" = "" ]; then
-	CFLAGS="-s -O2"
-fi
+_compile_obj(){
+	extra_flag=""
+	printf "Compiling $1 ($2)..."
+	basename=$(echo $1 | cut -d. -f1)
+	if [ -f obj/$basename-$2.o ]; then
+		echo "Already Built."
+		return 0
+	else
+		if [ "$2" = "shared" ]; then
+			extra_flag="-fPIC"
+		fi
+
+		$CC -c $extra_flag -Iinclude src/$1 -o obj/$basename-$2.o $CFLAGS
+		echo "Done."
+	fi
+}
 
 _runtime_calc(){
 	set +e
@@ -24,9 +39,9 @@ _runtime_calc(){
 			;;
 		stop)
 			end_time="$(date +%s)"
-			local runtime="$(expr $end_time - $start_time)"
-			local hours="$(expr $runtime / 3600)"
-			local minutes=0
+			runtime="$(expr $end_time - $start_time)"
+			hours="$(expr $runtime / 3600)"
+			minutes=0
 			printf "Operation took "
 
 			if [ $hours -ne 0 ]; then
@@ -52,28 +67,37 @@ _runtime_calc(){
 }
 
 compile_lib(){
-	for i in $(ls src); do
-		printf "Compiling $i (static)..."
-		$CC -c -Iinclude src/$i $CFLAGS -w
+	mkdir obj -p
+	src_list=$(ls src | grep '.c')
+	if [ -f custom_checks ]; then
+		printf "Running custom checks..."
+		. ./custom_checks
 		echo "Done."
-	done
-	printf "Creating static library $1..."
-	$AR rc $1.a *.o 2>&1 >/dev/null
-	echo "Done."
-	for i in $(ls src); do
-		printf "Compiling $i (shared)..."
-		$CC -c -fPIC -Iinclude src/$i $CFLAGS -w
-		echo "Done"
-	done
-	printf "Creating shared library $1..."
-	$CC -shared *.o -o $1.so -w
-	echo "Done."
-	rm *.o -f
+	fi
+
+	if [ $static -ne 0 ]; then
+		for i in $src_list; do
+			_compile_obj $i "static"
+		done
+		printf "Creating static library $1..."
+		$AR rc $1.a $(find obj | grep static) 2>&1 >/dev/null
+		echo "Done."
+	fi
+
+	if [ $shared -ne 0 ]; then
+		for i in $(ls src | grep '.c'); do
+			_compile_obj $i "shared"
+		done
+		printf "Creating shared library $1..."
+		$CC -shared $(find obj | grep shared) -o $1.so $CFLAGS
+		echo "Done."
+		rm *.o -f
+	fi
 }
 
 compile_test(){
 	printf "Compiling test program $1..."
-	$CC --static -Iinclude -L. $LDFLAGS  $1.c -o $1.out $2 $CFLAGS 2>&1 >/dev/null
+	$CC --static -Iinclude -L. $LDFLAGS  $1.c -o $1.out $2 $CFLAGS -w
 	echo "Done."
 }
 
@@ -84,10 +108,10 @@ install_lib(){
 	echo "Done."
 }
 
-printf "PocketLinux32's Generic C Library Build System v0.01\n\n"
+printf "PocketLinux32's Generic C Library Build System v0.03\n\n"
 case $1 in
 	--clean)
-		rm *.out *.a *.so core -f
+		rm obj *.out *.a *.so core* -rf
 		echo "Project directory has been cleaned"
 		exit 0
 		;;
@@ -97,7 +121,7 @@ case $1 in
 		;;
 	--install)
 		_runtime_calc start
-		install_lib libpl32 $2
+		install_lib libpl32 $(realpath "$2")
 		_runtime_calc stop
 		exit 0
 		;;
@@ -110,11 +134,17 @@ case $1 in
 esac
 
 if [ "$action" = "lib" ]; then
-	opts="libpltk"
+	opts="libpl32"
+	if [ "$3" = "no-static" ]; then
+		static=0
+	elif [ "$3" = "no-shared" ]; then
+		shared=0
+	fi
 elif [ "$action" = "test" ]; then
-	opts="pl32-test -lpl32 -lpltk"
+	opts="pl32-test -lpl32"
 fi
 
 _runtime_calc start
 compile_$action $opts
 _runtime_calc stop
+
