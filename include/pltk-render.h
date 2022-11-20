@@ -10,16 +10,16 @@
 extern "C" {
 #endif
 
-typedef struct vector2d {
+typedef struct pltkpoint2d {
 	unsigned int x;
 	unsigned int y;
-} plvcoords_t;
+} pltkpoint_t;
 typedef struct pltkrender pltkrender_t;
 
 pltkrender_t* pltkInitRender(void);
 void pltkStopRender(pltkrender_t* renderer);
 
-void pltkVectorLineDraw(plvcoords_t* start, plvcoords_t* stop);
+void pltkVectorLineDraw(pltkpoint_t* start, pltkpoint_t* stop);
 void pltkVectorDraw(plarray_t coords);
 
 #ifdef __cplusplus
